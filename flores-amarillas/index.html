@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Flores Amarillas – p5.js</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- p5.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+    <style>
+      html, body { margin:0; padding:0; background:#f7f4e9; }
+      canvas { display:block; }
+    </style>
+  </head>
+  <body>
+    <script>
+      // ======= CONFIG =======
+      const FLOWERS = [
+        { x: 140, y: 420, s: 0.9 },
+        { x: 320, y: 460, s: 1.1 },
+        { x: 520, y: 430, s: 0.95 },
+        { x: 720, y: 470, s: 1.2 },
+        { x: 920, y: 440, s: 1.0 },
+      ];
+      const PETALS = 24;             // # de pétalos
+      const WIND_SPEED = 0.4;        // velocidad del “viento”
+      const OPENING_SPEED = 0.015;   // velocidad de apertura de pétalos
+      const POLLEN_COUNT = 120;      // cantidad de partículas de polen
+
+      let pollen = [];
+
+      function setup() {
+        createCanvas(1080, 600);
+        noStroke();
+        initPollen();
+      }
+
+      function windowResized() {
+        // Si quieres responsive, comenta la siguiente línea y maneja proporciones
+        // resizeCanvas(windowWidth, windowHeight);
+      }
+
+      function draw() {
+        drawBackgroundGradient();
+        drawGround();
+
+        // ligera brisa global
+        const t = frameCount * 0.01;
+
+        // Dibuja tallos detrás de los pétalos (para mejor layering)
+        push();
+        for (let f of FLOWERS) {
+          drawStem(f.x, f.y, f.s, t);
+        }
+        pop();
+
+        // Flores
+        for (let i = 0; i < FLOWERS.length; i++) {
+          const f = FLOWERS[i];
+          const phase = i * 1000; // desfasar ruido por flor
+          drawFlower(f.x, f.y, f.s, PETALS, phase, t);
+        }
+
+        // Polen flotando encima
+        updateAndDrawPollen();
+      }
+
+      // ======= BACKGROUND & GROUND =======
+      function drawBackgroundGradient() {
+        // De cielo cálido a crema (Canvas2D gradient para suavidad real)
+        const g = drawingContext.createLinearGradient(0, 0, 0, height);
+        g.addColorStop(0, '#EAE7FF'); // muy tenue lila
+        g.addColorStop(0.45, '#F5F7FF');
+        g.addColorStop(1, '#FFFBEA'); // crema cálido
+        drawingContext.fillStyle = g;
+        rect(0, 0, width, height);
+      }
+
+      function drawGround() {
+        // colina suave
+        fill(225, 238, 205);
+        beginShape();
+        curveVertex(0, height);
+        curveVertex(0, height - 60);
+        curveVertex(width * 0.25, height - 100);
+        curveVertex(width * 0.55, height - 60);
+        curveVertex(width * 0.85, height - 110);
+        curveVertex(width, height - 70);
+        curveVertex(width, height);
+        endShape(CLOSE);
+      }
+
+      // ======= STEM & LEAVES =======
+      function drawStem(x, y, s, t) {
+        push();
+        translate(x, y);
+        const sway = map(noise(x * 0.003, t * WIND_SPEED), 0, 1, -0.15, 0.15); // inclinación
+        rotate(sway);
+        // tallo
+        fill(62, 122, 85);
+        rect(-4 * s, -200 * s, 8 * s, 220 * s, 6 * s);
+        // hojas
+        fill(78, 150, 100);
+        drawLeaf(-20 * s, -140 * s, 35 * s, 16 * s, -0.7 + sway);
+        drawLeaf( 18 * s, -90  * s, 38 * s, 18 * s,  0.7 + sway);
+        pop();
+      }
+
+      function drawLeaf(dx, dy, w, h, rot) {
+        push();
+        translate(dx, dy);
+        rotate(rot);
+        beginShape();
+        for (let a = 0; a <= 180; a += 8) {
+          const rad = radians(a);
+          const px = cos(rad) * w;
+          const py = sin(rad) * h * (1 - 0.15 * sin(rad)); // leve asimetría
+          vertex(px, py);
+        }
+        for (let a = 180; a >= 0; a -= 8) {
+          const rad = radians(a);
+          const px = -cos(rad) * w;
+          const py = sin(rad) * h * (1 - 0.15 * sin(rad));
+          vertex(px, py);
+        }
+        endShape(CLOSE);
+        pop();
+      }
+
+      // ======= FLOWER =======
+      function drawFlower(x, y, s, petalCount, phase, t) {
+        push();
+        translate(x, y - 210 * s);
+
+        // apertura de pétalos de 0 (cerrado) a 1 (abierto)
+        const open = constrain(0.15 + 0.85 * sin(frameCount * OPENING_SPEED + phase), 0.1, 1);
+        // suave vaivén por viento
+        const sway = map(noise(phase, t * WIND_SPEED), 0, 1, -0.12, 0.12);
+        rotate(sway);
+
+        // sombra suave detrás de pétalos
+        push();
+        rotate(0.05);
+        fill(0, 0, 0, 30);
+        ellipse(8 * s, 12 * s, 160 * s, 90 * s);
+        pop();
+
+        // pétalos (con “gradiente” a base de capas)
+        for (let i = 0; i < petalCount; i++) {
+          const ang = (TAU / petalCount) * i;
+          drawPetal(ang, s, open);
+        }
+
+        // anillo de brillo cerca del centro
+        drawHalo(s);
+
+        // centro con espiral de semillas
+        drawPhyllotaxisCenter(s);
+
+        pop();
+      }
+
+      function drawPetal(angle, s, open) {
+        push();
+        rotate(angle);
+        // longitud base + apertura
+        const L = 95 * s * (0.6 + 0.4 * open);
+        const W = 42 * s * (0.7 + 0.3 * open);
+
+        // “ondita” sutil por viento (brillo animado)
+        const flicker = 0.08 * sin(frameCount * 0.05 + angle * 7);
+        // color base
+        const c1 = color(255, 220, 60);
+        const c2 = color(255, 190, 30);
+
+        // Petalo compuesto de 4 capas, simulando gradiente
+        for (let k = 0; k < 4; k++) {
+          const lerpT = k / 3;
+          const col = lerpColor(c1, c2, lerpT);
+          col.setAlpha(220 - k * 40);
+          fill(col);
+
+          const l = L * (1 - k * 0.12 + flicker * 0.3);
+          const w = W * (1 - k * 0.12);
+
+          // forma con béziers para elegancia
+          beginShape();
+          vertex(0, 0);
+          bezierVertex( w * 0.8, -l * 0.20,  w * 0.9, -l * 0.65, 0, -l);
+          bezierVertex(-w * 0.9, -l * 0.65, -w * 0.8, -l * 0.20, 0, 0);
+          endShape(CLOSE);
+        }
+
+        // línea de “nervadura” sutil
+        stroke(255, 200, 90, 60);
+        strokeWeight(1.2);
+        line(0, -L * 0.2, 0, -L * 0.95);
+        noStroke();
+        pop();
+      }
+
+      function drawHalo(s) {
+        push();
+        // anillo suave de luz
+        for (let r = 60 * s; r <= 85 * s; r += 5) {
+          fill(255, 230, 90, map(r, 60 * s, 85 * s, 70, 15));
+          ellipse(0, 0, r * 2, r * 2);
+        }
+        pop();
+      }
+
+      function drawPhyllotaxisCenter(s) {
+        push();
+        const nPoints = 450; // semillas
+        const angle = radians(137.5); // ángulo áureo
+        for (let i = 0; i < nPoints; i++) {
+          const r = 0.6 * sqrt(i) * 4 * s;
+          const a = i * angle;
+          const x = r * cos(a);
+          const y = r * sin(a);
+
+          // semilla
+          fill(90, 55, 35);
+          ellipse(x, y, 6 * s, 6 * s);
+
+          // brillo sutil
+          fill(240, 210, 120, 80);
+          ellipse(x - 1.5 * s, y - 1.5 * s, 2.2 * s, 2.2 * s);
+        }
+
+        // disco base
+        noStroke();
+        fill(110, 70, 40, 220);
+        ellipse(0, 0, 85 * s, 85 * s);
+        pop();
+      }
+
+      // ======= POLLEN =======
+      function initPollen() {
+        pollen = [];
+        for (let i = 0; i < POLLEN_COUNT; i++) {
+          pollen.push({
+            x: random(width),
+            y: random(height * 0.2, height * 0.95),
+            s: random(1, 2.2),
+            a: random(60, 140),
+            t: random(1000),
+          });
+        }
+      }
+
+      function updateAndDrawPollen() {
+        for (let p of pollen) {
+          // movimiento con ruido (como aire)
+          p.t += 0.005;
+          p.x += map(noise(p.t, 0), 0, 1, -0.35, 0.7);
+          p.y += map(noise(0, p.t), 0, 1, -0.15, 0.25);
+
+          // recircula
+          if (p.x < -10) p.x = width + 10;
+          if (p.x > width + 10) p.x = -10;
+          if (p.y < height * 0.2) p.y = height * 0.95;
+          if (p.y > height * 0.97) p.y = height * 0.25;
+
+          // dibuja
+          noStroke();
+          fill(255, 210, 80, p.a);
+          ellipse(p.x, p.y, p.s, p.s);
+
+          // brillo pequeñito
+          fill(255, 255, 255, 90);
+          ellipse(p.x - p.s * 0.2, p.y - p.s * 0.2, p.s * 0.25, p.s * 0.25);
+        }
+      }
+    </script>
+  </body>
+</html>
