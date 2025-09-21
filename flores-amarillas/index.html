@@ -1,276 +1,415 @@
 <!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <title>Flores Amarillas – p5.js</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- p5.js CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
-    <style>
-      html, body { margin:0; padding:0; background:#f7f4e9; }
-      canvas { display:block; }
-    </style>
-  </head>
-  <body>
-    <script>
-      // ======= CONFIG =======
-      const FLOWERS = [
-        { x: 140, y: 420, s: 0.9 },
-        { x: 320, y: 460, s: 1.1 },
-        { x: 520, y: 430, s: 0.95 },
-        { x: 720, y: 470, s: 1.2 },
-        { x: 920, y: 440, s: 1.0 },
-      ];
-      const PETALS = 24;             // # de pétalos
-      const WIND_SPEED = 0.4;        // velocidad del “viento”
-      const OPENING_SPEED = 0.015;   // velocidad de apertura de pétalos
-      const POLLEN_COUNT = 120;      // cantidad de partículas de polen
+<head>
+  <meta charset="utf-8" />
+  <title>Ramo de Flores Amarillas – p5.js</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <!-- Fuentes para el título -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    html, body { margin:0; padding:0; background:#f6f3e7; overflow:hidden; }
+    canvas { display:block; }
 
-      let pollen = [];
+    /* Título sobre el canvas */
+    .title {
+      position: fixed;
+      top: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 40px);
+      text-align: center;
+      font-family: "Playfair Display", serif;
+      font-weight: 700;
+      font-size: clamp(22px, 3.6vw, 46px);
+      letter-spacing: 0.5px;
+      line-height: 1.2;
+      margin: 0;
+      color: transparent;
+      background: linear-gradient(90deg, #7c4dff, #ffb300, #ff6f61, #7c4dff);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+              background-clip: text;
+      text-shadow: 0 2px 12px rgba(0,0,0,.12);
+      animation: shimmer 8s linear infinite, floaty 6s ease-in-out infinite;
+      filter: drop-shadow(0 0 6px rgba(255, 233, 158, .35));
+    }
+    .subtitle {
+      position: fixed;
+      top: calc(22px + clamp(28px, 4.2vw, 56px));
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 40px);
+      text-align: center;
+      font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-weight: 400;
+      font-size: clamp(14px, 1.6vw, 18px);
+      color: rgba(0,0,0,.45);
+      letter-spacing: .2px;
+      text-shadow: 0 1px 6px rgba(0,0,0,.08);
+      animation: floaty 7s ease-in-out reverse infinite;
+    }
+    @keyframes shimmer { 
+      0%{ background-position: 0% 50%; } 
+      100%{ background-position: 200% 50%; } 
+    }
+    @keyframes floaty {
+      0%,100%{ transform: translate(-50%, -2px); }
+      50%{ transform: translate(-50%, 2px); }
+    }
+  </style>
+</head>
+<body>
+  <h1 class="title">para mi pulquita, nunca serás espectadora</h1>
+  <div class="subtitle">🌻 con viento, sol y abejitas — hecho con p5.js</div>
 
-      function setup() {
-        createCanvas(1080, 600);
-        noStroke();
-        initPollen();
+<script>
+/* ==================== PARÁMETROS ==================== */
+let windBase = 0.55;   // viento base (más vivo)
+let gustiness = 1.5;   // variación de ráfagas
+let daySpeed  = 0.017; // ciclo de día
+let pollenCount = 170, cloudCount = 5, beesCount = 3;
+
+let clouds=[], pollen=[], bees=[];
+let bouquet;
+
+function setup(){
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1.5);
+  initScene();
+}
+function windowResized(){
+  resizeCanvas(windowWidth, windowHeight);
+  initScene();
+}
+
+function initScene(){
+  clouds=[]; pollen=[]; bees=[];
+  for(let i=0;i<cloudCount;i++) clouds.push(new Cloud());
+  for(let i=0;i<pollenCount;i++) pollen.push(new Pollen());
+  for(let i=0;i<beesCount;i++)   bees.push(new Bee());
+
+  // 👉 Ramo CENTRADO
+  const center = createVector(width*0.5, height*0.72);
+  const scale = min(width, height) / 900;
+  bouquet = new Bouquet(center, scale);
+}
+
+function draw(){
+  const t = frameCount*0.01;
+  const day = (sin(frameCount*daySpeed)+1)/2;
+  const wind = windBase * (0.6 + 0.4*noise(t*0.12)) * (0.7 + gustiness*noise(t*0.02+100));
+
+  drawSky(day);
+  drawSun(day);
+  drawHills();
+
+  for (let c of clouds) c.updateDraw(day);
+
+  bouquet.draw(day, wind);      // 🎯 Ramo centrado y animado
+
+  for (let p of pollen) p.updateDraw(wind);
+  for (let b of bees)   b.updateDraw(wind, day);
+
+  vignette(0.22);
+}
+
+/* ==================== FONDO ==================== */
+function drawSky(day){
+  const g = drawingContext.createLinearGradient(0,0,0,height);
+  const top = lerpColor(color('#DCD8FF'), color('#BFE6FF'), day);
+  const mid = lerpColor(color('#F7F4FF'), color('#EAF7FF'), day);
+  const bot = color('#FFF9E6');
+  g.addColorStop(0, top.toString());
+  g.addColorStop(0.55, mid.toString());
+  g.addColorStop(1, bot.toString());
+  drawingContext.fillStyle = g;
+  noStroke(); rect(0,0,width,height);
+}
+function drawSun(day){
+  const sx = lerp(width*0.12, width*0.82, day);
+  const sy = lerp(height*0.26, height*0.16, day);
+  noStroke();
+  for (let r=220;r>=40;r-=20){ fill(255,220,120, map(r,40,220,120,10)); ellipse(sx,sy,r,r); }
+  fill(255,240,160,220); ellipse(sx,sy,60,60);
+}
+function drawHills(){
+  noStroke();
+  const base=height*0.85;
+  fill(218,236,210);
+  beginShape();
+  vertex(0,height);
+  curveVertex(0,base+10); curveVertex(width*0.35,base-20);
+  curveVertex(width*0.7, base+5); curveVertex(width, base-10);
+  vertex(width,height); endShape(CLOSE);
+
+  fill(204,232,205);
+  beginShape();
+  vertex(0,height);
+  curveVertex(0,base+60); curveVertex(width*0.42,base+40);
+  curveVertex(width*0.8, base+70); curveVertex(width, base+55);
+  vertex(width,height); endShape(CLOSE);
+}
+
+/* ==================== RAMO CENTRADO ==================== */
+class Bouquet{
+  constructor(center, s){
+    this.center = center.copy();
+    this.s = s;
+    this.phase = random(1000);
+
+    this.tieY = this.center.y + 80*this.s;
+    this.spread = 85*this.s;
+    this.headRadius = 135*this.s;
+
+    this.heads = [];
+    // Más denso y grande (3 anillos + pulso)
+    const rings = [
+      {n: 8,  r: this.headRadius*0.36},
+      {n: 10, r: this.headRadius*0.64},
+      {n: 14, r: this.headRadius*0.94}
+    ];
+    for (let ring of rings){
+      for (let i=0;i<ring.n;i++){
+        const ang = (TAU/ring.n)*i + random(-0.06,0.06);
+        const r = ring.r + random(-8,8)*this.s;
+        const px = this.center.x + r*cos(ang);
+        const py = this.center.y - 130*this.s + r*sin(ang)*0.75;
+        const sc = 1.10*this.s*random(0.92,1.09);
+        this.heads.push(new FlowerHead(px, py, sc, 18+floor(random(5)), random(1000)));
       }
+    }
 
-      function windowResized() {
-        // Si quieres responsive, comenta la siguiente línea y maneja proporciones
-        // resizeCanvas(windowWidth, windowHeight);
-      }
+    // Tallos convergentes
+    this.stems = this.heads.map(h => {
+      const baseX = lerp(h.x, this.center.x, 0.62) + random(-12,12)*this.s;
+      const baseY = this.tieY + random(-4,6)*this.s;
+      return { hx:h.x, hy:h.y, bx:baseX, by:baseY };
+    });
+  }
 
-      function draw() {
-        drawBackgroundGradient();
-        drawGround();
+  draw(day, wind){
+    const t = frameCount*0.01;
+    const sway = map(noise(this.phase, t*0.35),0,1,-0.08,0.08) * (0.7+wind);
 
-        // ligera brisa global
-        const t = frameCount * 0.01;
+    push();
+    translate(this.center.x, this.center.y);
+    rotate(sway);
+    translate(-this.center.x, -this.center.y);
 
-        // Dibuja tallos detrás de los pétalos (para mejor layering)
-        push();
-        for (let f of FLOWERS) {
-          drawStem(f.x, f.y, f.s, t);
-        }
-        pop();
+    // Tallos
+    stroke(64,128,92); strokeWeight(7*this.s); strokeCap(ROUND); noFill();
+    for (let s of this.stems){
+      beginShape();
+      vertex(s.hx, s.hy+15*this.s);
+      quadraticVertex( lerp(s.hx, this.center.x, 0.45),
+                       lerp(s.hy, this.tieY, 0.25) + 22*this.s*noise(s.hx*0.01, t),
+                       s.bx, s.by);
+      endShape();
+    }
+    noStroke();
 
-        // Flores
-        for (let i = 0; i < FLOWERS.length; i++) {
-          const f = FLOWERS[i];
-          const phase = i * 1000; // desfasar ruido por flor
-          drawFlower(f.x, f.y, f.s, PETALS, phase, t);
-        }
+    // Envoltura
+    this.drawWrap();
 
-        // Polen flotando encima
-        updateAndDrawPollen();
-      }
+    // Cabezas (orden por profundidad)
+    this.heads.sort((a,b)=> a.y-b.y);
+    for (let h of this.heads) h.draw(day, wind);
 
-      // ======= BACKGROUND & GROUND =======
-      function drawBackgroundGradient() {
-        // De cielo cálido a crema (Canvas2D gradient para suavidad real)
-        const g = drawingContext.createLinearGradient(0, 0, 0, height);
-        g.addColorStop(0, '#EAE7FF'); // muy tenue lila
-        g.addColorStop(0.45, '#F5F7FF');
-        g.addColorStop(1, '#FFFBEA'); // crema cálido
-        drawingContext.fillStyle = g;
-        rect(0, 0, width, height);
-      }
+    // Lazo
+    this.drawRibbon();
+    pop();
+  }
 
-      function drawGround() {
-        // colina suave
-        fill(225, 238, 205);
-        beginShape();
-        curveVertex(0, height);
-        curveVertex(0, height - 60);
-        curveVertex(width * 0.25, height - 100);
-        curveVertex(width * 0.55, height - 60);
-        curveVertex(width * 0.85, height - 110);
-        curveVertex(width, height - 70);
-        curveVertex(width, height);
-        endShape(CLOSE);
-      }
+  drawWrap(){
+    const w = this.spread, topY = this.center.y - 92*this.s, tieY = this.tieY;
+    const paper = color(245, 232, 200, 235);
 
-      // ======= STEM & LEAVES =======
-      function drawStem(x, y, s, t) {
-        push();
-        translate(x, y);
-        const sway = map(noise(x * 0.003, t * WIND_SPEED), 0, 1, -0.15, 0.15); // inclinación
-        rotate(sway);
-        // tallo
-        fill(62, 122, 85);
-        rect(-4 * s, -200 * s, 8 * s, 220 * s, 6 * s);
-        // hojas
-        fill(78, 150, 100);
-        drawLeaf(-20 * s, -140 * s, 35 * s, 16 * s, -0.7 + sway);
-        drawLeaf( 18 * s, -90  * s, 38 * s, 18 * s,  0.7 + sway);
-        pop();
-      }
+    // Sombra bajo cabezas
+    fill(0,0,0,22);
+    ellipse(this.center.x, topY+18*this.s, this.headRadius*2.0, this.headRadius*1.05);
 
-      function drawLeaf(dx, dy, w, h, rot) {
-        push();
-        translate(dx, dy);
-        rotate(rot);
-        beginShape();
-        for (let a = 0; a <= 180; a += 8) {
-          const rad = radians(a);
-          const px = cos(rad) * w;
-          const py = sin(rad) * h * (1 - 0.15 * sin(rad)); // leve asimetría
-          vertex(px, py);
-        }
-        for (let a = 180; a >= 0; a -= 8) {
-          const rad = radians(a);
-          const px = -cos(rad) * w;
-          const py = sin(rad) * h * (1 - 0.15 * sin(rad));
-          vertex(px, py);
-        }
-        endShape(CLOSE);
-        pop();
-      }
+    fill(paper);
+    // Cono izquierda
+    beginShape();
+    vertex(this.center.x, topY);
+    bezierVertex(this.center.x - w*1.1, topY + 32*this.s,
+                 this.center.x - w*1.2, tieY - 10*this.s,
+                 this.center.x - 8*this.s, tieY + 8*this.s);
+    bezierVertex(this.center.x - 20*this.s, tieY - 2*this.s,
+                 this.center.x - 14*this.s, topY + 6*this.s,
+                 this.center.x, topY);
+    endShape(CLOSE);
+    // Cono derecha
+    beginShape();
+    vertex(this.center.x, topY);
+    bezierVertex(this.center.x + w*1.1, topY + 32*this.s,
+                 this.center.x + w*1.2, tieY - 10*this.s,
+                 this.center.x + 8*this.s, tieY + 8*this.s);
+    bezierVertex(this.center.x + 20*this.s, tieY - 2*this.s,
+                 this.center.x + 14*this.s, topY + 6*this.s,
+                 this.center.x, topY);
+    endShape(CLOSE);
 
-      // ======= FLOWER =======
-      function drawFlower(x, y, s, petalCount, phase, t) {
-        push();
-        translate(x, y - 210 * s);
+    // Dobleces
+    fill(0,0,0,10);
+    ellipse(this.center.x, tieY, this.spread*1.1, 18*this.s);
+  }
 
-        // apertura de pétalos de 0 (cerrado) a 1 (abierto)
-        const open = constrain(0.15 + 0.85 * sin(frameCount * OPENING_SPEED + phase), 0.1, 1);
-        // suave vaivén por viento
-        const sway = map(noise(phase, t * WIND_SPEED), 0, 1, -0.12, 0.12);
-        rotate(sway);
+  drawRibbon(){
+    const y = this.tieY;
+    fill(220, 40, 60);
+    rect(this.center.x-36*this.s, y-10*this.s, 72*this.s, 20*this.s, 10*this.s);
+    push(); translate(this.center.x, y); noStroke();
+    // bucles
+    for (let k=-1;k<=1;k+=2){
+      beginShape();
+      vertex(0,0);
+      bezierVertex( 30*k*this.s, -25*this.s, 45*k*this.s, -5*this.s, 32*k*this.s, 14*this.s);
+      bezierVertex( 18*k*this.s, 22*this.s, 10*k*this.s, 10*this.s, 0,0);
+      endShape(CLOSE);
+    }
+    // colas
+    beginShape(); vertex(-10*this.s, 10*this.s); vertex(-22*this.s, 44*this.s); vertex(-2*this.s, 28*this.s); endShape(CLOSE);
+    beginShape(); vertex( 10*this.s, 10*this.s); vertex( 22*this.s, 44*this.s); vertex( 2*this.s, 28*this.s); endShape(CLOSE);
+    pop();
+  }
+}
 
-        // sombra suave detrás de pétalos
-        push();
-        rotate(0.05);
-        fill(0, 0, 0, 30);
-        ellipse(8 * s, 12 * s, 160 * s, 90 * s);
-        pop();
+/* ==================== CABEZA + PÉTALOS (más dinámica) ==================== */
+class FlowerHead{
+  constructor(x,y,s,petals,phase){
+    this.x=x; this.y=y; this.s=s; this.petals=petals; this.phase=phase;
+    this.open = 0.6;
+  }
+  draw(day, wind){
+    push();
+    translate(this.x, this.y);
 
-        // pétalos (con “gradiente” a base de capas)
-        for (let i = 0; i < petalCount; i++) {
-          const ang = (TAU / petalCount) * i;
-          drawPetal(ang, s, open);
-        }
+    // Pulso orgánico además del día
+    const pulse = 0.10 * sin(frameCount*0.05 + this.phase);
+    const target = 0.55 + 0.45*day + pulse;
+    this.open += (target - this.open) * 0.10;           // muelle más rápido
 
-        // anillo de brillo cerca del centro
-        drawHalo(s);
+    // Sway local más marcado
+    const t = frameCount*0.01;
+    const gust = (noise(this.phase, t*0.4)-0.5) * (1.1*wind) + 0.02*sin(t*6 + this.phase);
+    rotate(gust);
 
-        // centro con espiral de semillas
-        drawPhyllotaxisCenter(s);
+    // sombra sutil
+    fill(0,0,0,20); ellipse(6*this.s, 8*this.s, 150*this.s, 86*this.s);
 
-        pop();
-      }
+    // pétalos con micro-ondas independientes (más “vida”)
+    for (let i=0;i<this.petals;i++){
+      const a = (TAU/this.petals)*i;
+      drawPetal(a, this.s, this.open, this.phase + i*0.3);
+    }
 
-      function drawPetal(angle, s, open) {
-        push();
-        rotate(angle);
-        // longitud base + apertura
-        const L = 95 * s * (0.6 + 0.4 * open);
-        const W = 42 * s * (0.7 + 0.3 * open);
+    for (let r=54*this.s; r<=84*this.s; r+=7){
+      fill(255,230,100, map(r,54*this.s,84*this.s,80,18));
+      ellipse(0,0,r*2,r*2);
+    }
 
-        // “ondita” sutil por viento (brillo animado)
-        const flicker = 0.08 * sin(frameCount * 0.05 + angle * 7);
-        // color base
-        const c1 = color(255, 220, 60);
-        const c2 = color(255, 190, 30);
+    drawCenter(this.s);
+    pop();
+  }
+}
 
-        // Petalo compuesto de 4 capas, simulando gradiente
-        for (let k = 0; k < 4; k++) {
-          const lerpT = k / 3;
-          const col = lerpColor(c1, c2, lerpT);
-          col.setAlpha(220 - k * 40);
-          fill(col);
+function drawPetal(angle, s, open, seed){
+  push();
+  rotate(angle);
+  const L0 = 96*s, W0 = 44*s;
+  const L = L0*(0.55 + 0.45*open);
+  const W = W0*(0.65 + 0.35*open);
 
-          const l = L * (1 - k * 0.12 + flicker * 0.3);
-          const w = W * (1 - k * 0.12);
+  // micro-ondulación y pequeño retardo por pétalo
+  const flick = 0.09*sin(frameCount*0.08 + angle*7 + seed);
+  const bend  = 0.03*sin(frameCount*0.06 + seed);
 
-          // forma con béziers para elegancia
-          beginShape();
-          vertex(0, 0);
-          bezierVertex( w * 0.8, -l * 0.20,  w * 0.9, -l * 0.65, 0, -l);
-          bezierVertex(-w * 0.9, -l * 0.65, -w * 0.8, -l * 0.20, 0, 0);
-          endShape(CLOSE);
-        }
+  rotate(bend);
 
-        // línea de “nervadura” sutil
-        stroke(255, 200, 90, 60);
-        strokeWeight(1.2);
-        line(0, -L * 0.2, 0, -L * 0.95);
-        noStroke();
-        pop();
-      }
+  const c1=color(255,228,74), c2=color(255,190,40);
+  for (let k=0;k<4;k++){
+    const t=k/3, col=lerpColor(c1,c2,t); col.setAlpha(220-k*45);
+    fill(col);
+    const l=L*(1-k*0.12 + flick*0.35);
+    const w=W*(1-k*0.12);
 
-      function drawHalo(s) {
-        push();
-        // anillo suave de luz
-        for (let r = 60 * s; r <= 85 * s; r += 5) {
-          fill(255, 230, 90, map(r, 60 * s, 85 * s, 70, 15));
-          ellipse(0, 0, r * 2, r * 2);
-        }
-        pop();
-      }
+    beginShape();
+    vertex(0,0);
+    bezierVertex( w*0.85, -l*0.18,  w*(0.92+0.06*sin(frameCount*0.02+angle*5)), -l*0.72, 0, -l);
+    bezierVertex(-w*(0.92+0.05*sin(frameCount*0.02+angle*5)), -l*0.72, -w*0.82, -l*0.18, 0,0);
+    endShape(CLOSE);
+  }
+  stroke(255,200,90,80); strokeWeight(1);
+  line(0,-L*0.18, 0,-L*0.96); noStroke();
+  pop();
+}
 
-      function drawPhyllotaxisCenter(s) {
-        push();
-        const nPoints = 450; // semillas
-        const angle = radians(137.5); // ángulo áureo
-        for (let i = 0; i < nPoints; i++) {
-          const r = 0.6 * sqrt(i) * 4 * s;
-          const a = i * angle;
-          const x = r * cos(a);
-          const y = r * sin(a);
+function drawCenter(s){
+  push();
+  const n=400, golden=radians(137.5);
+  noStroke(); fill(105,70,40,230); ellipse(0,0,86*s,86*s);
+  for (let i=0;i<n;i++){
+    const r=0.58*sqrt(i)*4.1*s, a=i*golden, x=r*cos(a), y=r*sin(a);
+    fill(92,56,34); ellipse(x,y, 5.9*s,5.9*s);
+    fill(240,210,130,90); ellipse(x-1.3*s,y-1.3*s,2.1*s,2.1*s);
+  }
+  pop();
+}
 
-          // semilla
-          fill(90, 55, 35);
-          ellipse(x, y, 6 * s, 6 * s);
+/* ==================== PARTÍCULAS, NUBES, ABEJAS ==================== */
+class Pollen{
+  constructor(){ this.reset(true); }
+  reset(atRandom=false){
+    this.x = atRandom? random(width) : (random()<0.5?-5:width+5);
+    this.y = random(height*0.22, height*0.95);
+    this.s = random(1,2.2); this.alpha=random(60,140); this.t=random(1000);
+  }
+  updateDraw(wind){
+    this.t += 0.006;
+    this.x += map(noise(this.t,0),0,1,-0.25,0.65) + wind*0.35;
+    this.y += map(noise(0,this.t),0,1,-0.20,0.22);
+    if (this.x<-8||this.x>width+8) this.reset(false);
+    noStroke();
+    fill(255,210,90,this.alpha); ellipse(this.x,this.y,this.s,this.s);
+    fill(255,255,255,95); ellipse(this.x-this.s*0.2, this.y-this.s*0.2, this.s*0.28, this.s*0.28);
+  }
+}
+class Cloud{
+  constructor(){ this.y=random(height*0.12,height*0.35); this.x=random(width); this.s=random(0.7,1.4); this.sp=random(0.1,0.25); }
+  updateDraw(day){
+    this.x += this.sp*(0.6+0.6*day); if (this.x>width+120) this.x=-120;
+    push(); translate(this.x,this.y); noStroke();
+    const c=lerpColor(color(255,255,255,180), color(245,255,255,150), day);
+    fill(c); ellipse(0,0,120*this.s,55*this.s); ellipse(40*this.s,-10*this.s,90*this.s,45*this.s); ellipse(-45*this.s,-8*this.s,80*this.s,38*this.s);
+    pop();
+  }
+}
+class Bee{
+  constructor(){ this.reset(); }
+  reset(){ this.x=random(width*0.2,width*0.8); this.y=random(height*0.42,height*0.76); this.t=random(1000); this.dir=random()<0.5?-1:1; this.scale=random(0.85,1.1); }
+  updateDraw(wind,day){
+    this.t+=0.022+0.012*wind;
+    this.x += this.dir*(1.7+0.6*sin(this.t*2.1)) + map(noise(this.t),0,1,-0.45,0.65);
+    this.y += 0.65*sin(this.t*3.1) + map(noise(0,this.t),0,1,-0.45,0.55);
+    if (this.x<-40||this.x>width+40) this.reset();
+    push(); translate(this.x,this.y); scale(this.scale);
+    noStroke();
+    fill(255,255,255, 120+80*sin(frameCount*0.5)); ellipse(8,-8,16,10); ellipse(18,-6,16,10);
+    fill(255,200,40); ellipse(12,0,22,14);
+    fill(60); rect(4,-6,16,4,2); rect(6,-1,16,4,2);
+    fill(40); ellipse(2,0,8,8); pop();
+  }
+}
 
-          // brillo sutil
-          fill(240, 210, 120, 80);
-          ellipse(x - 1.5 * s, y - 1.5 * s, 2.2 * s, 2.2 * s);
-        }
-
-        // disco base
-        noStroke();
-        fill(110, 70, 40, 220);
-        ellipse(0, 0, 85 * s, 85 * s);
-        pop();
-      }
-
-      // ======= POLLEN =======
-      function initPollen() {
-        pollen = [];
-        for (let i = 0; i < POLLEN_COUNT; i++) {
-          pollen.push({
-            x: random(width),
-            y: random(height * 0.2, height * 0.95),
-            s: random(1, 2.2),
-            a: random(60, 140),
-            t: random(1000),
-          });
-        }
-      }
-
-      function updateAndDrawPollen() {
-        for (let p of pollen) {
-          // movimiento con ruido (como aire)
-          p.t += 0.005;
-          p.x += map(noise(p.t, 0), 0, 1, -0.35, 0.7);
-          p.y += map(noise(0, p.t), 0, 1, -0.15, 0.25);
-
-          // recircula
-          if (p.x < -10) p.x = width + 10;
-          if (p.x > width + 10) p.x = -10;
-          if (p.y < height * 0.2) p.y = height * 0.95;
-          if (p.y > height * 0.97) p.y = height * 0.25;
-
-          // dibuja
-          noStroke();
-          fill(255, 210, 80, p.a);
-          ellipse(p.x, p.y, p.s, p.s);
-
-          // brillo pequeñito
-          fill(255, 255, 255, 90);
-          ellipse(p.x - p.s * 0.2, p.y - p.s * 0.2, p.s * 0.25, p.s * 0.25);
-        }
-      }
-    </script>
-  </body>
+/* ==================== EFECTO BORDE ==================== */
+function vignette(intensity=0.22){
+  const g = drawingContext.createRadialGradient(width/2,height/2,min(width,height)*0.4,
+                                                width/2,height/2,max(width,height)*0.7);
+  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,`rgba(0,0,0,${intensity})`);
+  drawingContext.fillStyle=g; noStroke(); rect(0,0,width,height);
+}
+</script>
+</body>
 </html>
